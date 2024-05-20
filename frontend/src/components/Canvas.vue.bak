@@ -1,0 +1,478 @@
+<template>
+  <v-card id = 'canvasContiner' height='2000px' width='2000px' style ='position: absolute; display: inline-block;'>
+    <v-card style = 'display: none'>
+      <img v-for = "i in (BlocksCount)" :key="i" :src = "require('../assets/img' + Blocks[i - 1].img + 'Big.svg')" :id = "Blocks[i-1].img" width = "STANDARD_BLOCK_WIDTH"
+      height = "STANDARD_BLOCK_WIDTH * STANDARD_BLOCK_HEIGHT_MULTIPLYER">
+    </v-card>
+    <canvas id='flowchart' style='position: absolute; z-index: 0'>Обновите браузер
+    </canvas>
+    <canvas id='toolLayer' style='position: absolute; z-index: 1'>
+    </canvas>
+  </v-card>
+</template>
+<script>
+import { Instruments, Blocks, BlocksCount, OperationStep, STANDARD_BLOCK_WIDTH, STANDARD_BLOCK_HEIGHT_MULTIPLYER, XOFFSET, isValidBlock } from '../plugins/constants'
+import { constructBlock, constructArrow, blockAt, constructStraightArrow, constructRectangularArrow, getIntersections, actualIntersection, getEdgePointCoords, addEdgePoints, adjustArrowSegmentForNewCoords, assembleArrowPointsForMovingSegment, getSegmemtSelectPath } from '../plugins/functions'
+import { mapGetters, mapActions } from 'vuex'
+import { eventBus } from '../main.js'
+if (BlocksCount > BlocksCount + 1) {
+  constructArrow()
+}
+// import { ShapeInfo, Intersection } from 'kld-intersections'
+export default {
+  data: () => {
+    return {
+      Blocks,
+      BlocksCount,
+      STANDARD_BLOCK_WIDTH,
+      STANDARD_BLOCK_HEIGHT_MULTIPLYER
+    }
+  },
+  methods: {
+    drawSelectionFigure (x, y, context, doFill = false) {
+      const sSize = 5
+      const sOffset = 2
+      context.strokestyle = 'black'
+      context.globalAlpha = 1
+      if (doFill) {
+        context.fillRect(x - sOffset, y - sOffset, sSize, sSize)
+      } else {
+        context.strokeRect(x - sOffset, y - sOffset, sSize, sSize)
+      }
+      context.globalAlpha = 0.5
+    },
+    drawBoxSelection (block) {
+      this.clearToolLayer()
+      // данный тип отображения происходит только в верхнем слое
+      const elem = document.getElementById('toolLayer')
+      const context = elem.getContext('2d')
+      // порядок обхода - с СЗ угла по часовой
+      const leftCoord = block.centerX - block.sizeX / 2
+      const centerXCoord = block.centerX
+      const rightCoord = block.centerX + block.sizeX / 2
+      const upperCoord = block.centerY - block.sizeY / 2
+      const centerYCoord = block.centerY
+      const lowerCoord = block.centerY + block.sizeY / 2
+      const selectionCoordsX = [leftCoord, centerXCoord, rightCoord, rightCoord, rightCoord, centerXCoord, leftCoord, leftCoord]
+      const selectionCoordsY = [upperCoord, upperCoord, upperCoord, centerYCoord, lowerCoord, lowerCoord, lowerCoord, centerYCoord]
+      for (let i = 0; i < 8; i++) {
+        this.drawSelectionFigure(selectionCoordsX[i], selectionCoordsY[i], context)
+      }
+    },
+    drawArrowSelection (arrow, pointIndex) {
+      this.clearToolLayer()
+      // console.log('drawing selection of arrow')
+      const elem = document.getElementById('toolLayer')
+      const context = elem.getContext('2d')
+      const arrowPoints = this.getArrowPoints(arrow)
+      addEdgePoints(context, arrowPoints, arrow, this.getBlocks)
+      for (let i = 0; i < arrowPoints.length; i++) {
+        this.drawSelectionFigure(arrowPoints[i].x, arrowPoints[i].y, context, false)
+        if (i === pointIndex) {
+          this.drawSelectionFigure((arrowPoints[i].x + arrowPoints[i + 1].x) / 2, (arrowPoints[i].y + arrowPoints[i + 1].y) / 2, context, true)
+        }
+      }
+    },
+    // убирает все с верхнего слоя, служит для очистки временной графической информации
+    clearToolLayer () {
+      const elem = document.getElementById('toolLayer')
+      const context = elem.getContext('2d')
+      context.clearRect(0, 0, elem.width, elem.height)
+    },
+    // единый обработчик действий пользователя, надеюсь с ним не будет проблем
+    // служит контейнером для выполнения операций и общей логики
+    userInputHandler (event) {
+      // в данный момент просто является контейнером для запуска обработчиков операций
+      this.userOperationPlacingNewBlock(event)
+      this.userOperationSelectingBlockOrArrowSegment(event)
+      this.userOperationMovingBlock(event)
+      this.userOperationPlacingNewArrow(event)
+      this.userOperationMovingArrowSegment(event)
+    },
+    // функция обработки действий выполняемых при вставке нового блока
+    userOperationPlacingNewBlock (event) {
+      // проверка на то, что выбранный инструмент - блок (создание блока)
+      if (isValidBlock(this.getTool) === true) {
+        // при нажатии требуется добавить блок, убрать тени(если они имеются) и закончить операцию
+        if (event.type === 'click') {
+          this.placeNewBlock(event.offsetX * XOFFSET, event.offsetY, this.getTool)
+          this.clearToolLayer()
+          this.changeTool(Instruments.UNSELECT_TOOLS)
+          // console.log('placed block at:x=' + event.offsetX * XOFFSET + ', y=' + event.offsetY)
+        }
+        // при перемещении мыши по холсту надо отображать тень
+        if (event.type === 'mouseenter' || event.type === 'mousemove') {
+          this.clearToolLayer()
+          const elem = document.getElementById('toolLayer')
+          const context = elem.getContext('2d')
+          const shadeBlock = constructBlock(event.offsetX * XOFFSET, event.offsetY, this.getTool)
+          this.drawBlock(context, shadeBlock)
+          // const rect = event.currentTarget.getBoundingClientRect()
+          // const oX = event.clientX - rect.left
+          // const oY = event.clientY - rect.top
+          // context.strokeRect(event.offsetX * XOFFSET - shadeBlock.sizeX / 2, event.offsetY - shadeBlock.sizeY / 2, shadeBlock.sizeX, shadeBlock.sizeY)
+        }
+        // при выходе мыши с холста надо только убрать тень блока
+        if (event.type === 'mouseleave') {
+          this.clearToolLayer()
+        }
+      }
+    },
+    // обработка действий при выборе блока или сегмента стрелки
+    userOperationSelectingBlockOrArrowSegment (event) {
+      // проверка на то, что инструмент - выбор
+      if (this.getTool === Instruments.PARAMETERS_SELECT) {
+        if (event.type === 'click') {
+          const elem = document.getElementById('flowchart')
+          const context = elem.getContext('2d')
+          const blocks = this.getBlocks
+          const mousePoint = { x: event.offsetX * XOFFSET, y: event.offsetY }
+          // сначала проверяем, не выбирается ли какой-либо блок
+          const blockToSelect = blockAt(context, blocks, mousePoint.x, mousePoint.y)
+          // если блок успешно выбран, то надо указать в хранилище выбранный блок, затем сразу отрисовывать выбор блока
+          if (blockToSelect != null) {
+            // this.changeCurrentStep (OperationStep.SELECT_BLOCK_SELECTED)
+            // this.changeSelectedBlockID (blockToSelect.id)
+            // console.log('PREselected block' + blockToSelect)
+            this.selectBlock(blockToSelect.id)
+            this.drawBoxSelection(blockToSelect)
+            this.changeTool(Instruments.UNSELECT_TOOLS)
+            // console.log(blockToSelect)
+            // console.log('selected block ' + this.getSelectedBlockID)
+          }
+          // теперь пробуем вариант с выбором сегмента стрелки
+          // console.log('failed to select any block. Selecting an arrow')
+          let arrowToSelect = null
+          let arrowPointIndex = null
+          // для просмотра сегментов нужно пройтись по всем стрелкам
+          const arrows = this.getArrows
+          arrows.forEach(arrow => {
+            const arrowPoints = this.getArrowPoints(arrow)
+            addEdgePoints(context, arrowPoints, arrow, blocks)
+            // итерируем по всем сегментам, индекс - индекс начала сегмента в расширенном масииве точек стрелки
+            let i = 0
+            while ((i < arrowPoints.length - 1) && arrowToSelect === null) {
+              const segmentStart = arrowPoints[i]
+              const segmentEnd = arrowPoints[i + 1]
+              // выбор производится проверкой попадания курсора мыши в прределах определенного расстояния до сегмента стрелки
+              const svgPath = getSegmemtSelectPath(segmentStart, segmentEnd)
+              // console.log('considering arrow with id:' + arrow.id + ' and points of coords x: ' + segmentStart.x + ', y: ' + segmentStart.y + '; x: ' + segmentEnd.x + ', y: ' + segmentEnd.y)
+              // console.log('mousecoords x: ' + mousePoint.x + ', y: ' + mousePoint.y)
+              // context.stroke(new Path2D(svgPath))
+              if (context.isPointInPath(new Path2D(svgPath), mousePoint.x, mousePoint.y)) {
+                // надо запомнить ИД стрелки и индекс итератора (т.е. порядок точки в расширенном массиве)
+                arrowToSelect = arrow
+                arrowPointIndex = i
+              }
+              i++
+            }
+          })
+          if (arrowToSelect != null) {
+            this.selectArrow({ arrowId: arrowToSelect.id, pointIndex: arrowPointIndex })
+            this.drawArrowSelection(arrowToSelect, arrowPointIndex)
+            this.changeTool(Instruments.UNSELECT_TOOLS)
+          }
+        }
+      }
+    },
+    // обработка перемещения блока мышью
+    userOperationMovingBlock (event) {
+      // console.log(this.getTool)
+      // console.log(this.getCurrentStep)
+      // console.log(this.getSelectedBlockID)
+      if (this.getTool === Instruments.UNSELECT_TOOLS && this.getCurrentStep === OperationStep.SELECT_BLOCK_SELECTED && this.getSelectedBlockID != null) {
+        if (event.type === 'mousedown') {
+          this.changeCurrentStep(OperationStep.MOVE_BLOCK_IS_BEING_MOVED)
+          this.clearToolLayer()
+          const selectedBlock = this.getBlocks.find(block => block.id === this.getSelectedBlockID)
+          this.drawBoxSelection(selectedBlock)
+          const elem = document.getElementById('toolLayer')
+          const context = elem.getContext('2d')
+          const shadeBlock = copyBlock(selectedBlock)
+          shadeBlock.centerX = event.offsetX * XOFFSET
+          shadeBlock.centerY = event.offsetYT
+          this.drawBlock(context, shadeBlock)
+        }
+      }
+      if (this.getTool === Instruments.UNSELECT_TOOLS && this.getCurrentStep === OperationStep.MOVE_BLOCK_IS_BEING_MOVED && this.getSelectedBlockID != null) {
+        if (event.type === 'mousemove') {
+          this.clearToolLayer()
+          const selectedBlock = this.getBlocks.find(block => block.id === this.getSelectedBlockID)
+          this.drawBoxSelection(selectedBlock)
+          const elem = document.getElementById('toolLayer')
+          const context = elem.getContext('2d')
+          const shadeBlock = copyBlock(selectedBlock)
+          shadeBlock.centerX = event.offsetX * XOFFSET
+          shadeBlock.centerY = event.offsetYT
+          this.drawBlock(context, shadeBlock)
+        }
+        if (event.type === 'mouseleave') {
+          this.changeCurrentStep(OperationStep.SELECT_NONE_SELECTED)
+          this.clearToolLayer()
+          this.unselect()
+        }
+        if (event.type === 'mouseup') {
+          this.clearToolLayer()
+          // console.log('going up')
+          const moveInfo = {
+            id: this.getSelectedBlockID,
+            X: event.offsetX * XOFFSET,
+            Y: event.offsetY
+          }
+          // console.log(moveInfo)
+          this.moveBlock(moveInfo)
+          this.unselect()
+        }
+      }
+    },
+    // перемещение сегмента стрелки
+    userOperationMovingArrowSegment (event) {
+      // expect (-1, 2, NOT NULL)
+      // console.log('' + this.getTool + ', ' + this.getCurrentStep + ', ' + this.getSelectedArrowID)
+      if (this.getTool === Instruments.UNSELECT_TOOLS && this.getCurrentStep === OperationStep.SELECT_ARROW_SEGMENT_SELECTED && this.getSelectedArrowID != null) {
+        // console.log('we\'re moving segment!')
+        const elem = document.getElementById('toolLayer')
+        const context = elem.getContext('2d')
+        if (event.type === 'mousedown') {
+          this.clearToolLayer()
+          // TODO: перевести состояние в перемещение сегмента, сконструировать НОВУЮ стрелку с учетом сдвига координат мыши и отобразить её
+          const movingArrow = this.getArrows.find(arrow => arrow.id === this.getSelectedArrowID)
+          // console.log(movingArrow)
+          let arrowPoints = this.getArrowPoints(movingArrow)
+          const extendedArrowPoints = this.getArrowPoints(movingArrow)
+          addEdgePoints(context, extendedArrowPoints, movingArrow, this.getBlocks)
+          // надо проверить что промежуточные точки вообще есть
+          if (arrowPoints.length > 0) {
+            const startBlock = this.getBlocks.find(block => block.id === movingArrow.idStart)
+            const endBlock = this.getBlocks.find(block => block.id === movingArrow.idEnd)
+            const moveRes = adjustArrowSegmentForNewCoords(context, movingArrow, this.getSelectedSegmentPointIndex, startBlock, endBlock, extendedArrowPoints, event.offsetX * XOFFSET, event.offsetY)
+            // разбор результатов, в частоности их отображение на экране
+            // console.log(moveRes)
+            arrowPoints = assembleArrowPointsForMovingSegment(moveRes, arrowPoints, this.getBlocks, context)
+            // console.log(movingArrow)
+            // console.log(moveRes.arrow)
+            this.drawArrow(context, moveRes.arrow, arrowPoints)
+            this.changeCurrentStep(OperationStep.MOVE_ARROW_SEGMENT_IS_BEING_MOVED)
+          } else {
+            // сегменты прямых стрелок не перемещаются
+            this.changeCurrentStep(OperationStep.SELECT_NONE_SELECTED)
+            this.unselect()
+          }
+        }
+      }
+      if (this.getTool === Instruments.UNSELECT_TOOLS && this.getCurrentStep === OperationStep.MOVE_ARROW_SEGMENT_IS_BEING_MOVED && this.getSelectedArrowID != null) {
+        const elem = document.getElementById('toolLayer')
+        const context = elem.getContext('2d')
+        if (event.type === 'mousemove') {
+          // TODO: перемести сегмент по координатам мыши и отобрази(снеси предварительно слой
+          this.clearToolLayer()
+          // TODO: перевести состояние в перемещение сегмента, сконструировать НОВУЮ стрелку с учетом сдвига координат мыши и отобразить её
+          const movingArrow = this.getArrows.find(arrow => arrow.id === this.getSelectedArrowID)
+          let arrowPoints = this.getArrowPoints(movingArrow)
+          const extendedArrowPoints = this.getArrowPoints(movingArrow)
+          addEdgePoints(context, extendedArrowPoints, movingArrow, this.getBlocks)
+          const startBlock = this.getBlocks.find(block => block.id === movingArrow.idStart)
+          const endBlock = this.getBlocks.find(block => block.id === movingArrow.idEnd)
+          const moveRes = adjustArrowSegmentForNewCoords(context, movingArrow, this.getSelectedSegmentPointIndex, startBlock, endBlock, extendedArrowPoints, event.offsetX * XOFFSET, event.offsetY)
+          // разбор результатов, в частоности их отображение на экране
+          arrowPoints = assembleArrowPointsForMovingSegment(moveRes, arrowPoints, this.getBlocks, context)
+          // console.log(arrowPoints)
+          // console.log(movingArrow)
+          // console.log(moveRes.arrow)
+          this.drawArrow(context, moveRes.arrow, arrowPoints)
+        }
+        if (event.type === 'mouseleave') {
+          // здесь все как надо, по сути это отмена операции
+          this.changeCurrentStep(OperationStep.SELECT_NONE_SELECTED)
+          this.clearToolLayer()
+          this.unselect()
+        }
+        if (event.type === 'mouseup') {
+          // TODO: так, тут надо отобразить изменения в стрелке - они будут заключаться в собственно изменении стрелки и мб иассива точек
+          const movingArrow = this.getArrows.find(arrow => arrow.id === this.getSelectedArrowID)
+          const arrowPoints = this.getArrowPoints(movingArrow)
+          const extendedArrowPoints = this.getArrowPoints(movingArrow)
+          addEdgePoints(context, extendedArrowPoints, movingArrow, this.getBlocks)
+          // надо проверить что промежуточные точки вообще есть
+          if (arrowPoints.length > 0) {
+            const startBlock = this.getBlocks.find(block => block.id === movingArrow.idStart)
+            const endBlock = this.getBlocks.find(block => block.id === movingArrow.idEnd)
+            const moveRes = adjustArrowSegmentForNewCoords(context, movingArrow, this.getSelectedSegmentPointIndex, startBlock, endBlock, extendedArrowPoints, event.offsetX * XOFFSET, event.offsetY)
+            this.clearToolLayer()
+            this.moveArrowSegment(moveRes)
+          }
+          this.unselect()
+        }
+      }
+    },
+    userOperationPlacingNewArrow (event) {
+      if (this.getTool === Instruments.ARROW_DEFAULT && this.getCurrentStep === OperationStep.SELECT_NONE_SELECTED) {
+        if (event.type === 'mousedown') {
+          // console.log('startedarrow')
+          this.clearToolLayer()
+          const elem = document.getElementById('flowchart')
+          const context = elem.getContext('2d')
+          const blockToSelect = blockAt(context, this.getBlocks, event.offsetX * XOFFSET, event.offsetY)
+          if (blockToSelect != null) {
+            this.defineStartPoint({ x: event.offsetX * XOFFSET, y: event.offsetY })
+          } else {
+            this.unselect()
+          }
+        }
+      }
+      if (this.getTool === Instruments.ARROW_DEFAULT && this.getCurrentStep === OperationStep.ARROWPLACING_STARTPOINT_DEFINED) {
+        if (event.type === 'mouseleave') {
+          this.clearToolLayer()
+          this.unselect()
+        } else if (event.type === 'mousemove') {
+          // console.log('moving endpoint of arrow')
+          // console.log('coords - start:x=' + this.getArrowStartPoint.x + ', y=' + this.getArrowStartPoint.y + '; end:x=' + event.offsetX * XOFFSET + ', y=' + event.offsetY)
+          this.clearToolLayer()
+          const elem = document.getElementById('flowchart')
+          const context = elem.getContext('2d')
+          const startBlock = blockAt(context, this.getBlocks, this.getArrowStartPoint.x, this.getArrowStartPoint.y)
+          let endPoint = { x: event.offsetX * XOFFSET, y: event.offsetY }
+          const endBlock = blockAt(context, this.getBlocks, endPoint.x, endPoint.y)
+          const arrow = constructStraightArrow(context, this.getArrowStartPoint, startBlock, endPoint, endBlock)
+          if (arrow != null) {
+            const startPoint = getEdgePointCoords(context, startBlock, arrow.angleStart)
+            if (endBlock != null) {
+              endPoint = actualIntersection(context, endBlock, getIntersections(endBlock, startPoint.x, startPoint.y, endPoint.x, endPoint.y))
+            }
+            // console.log(arrow.angleStart)
+            const elem2 = document.getElementById('toolLayer')
+            const context2 = elem2.getContext('2d')
+            this.drawArrowSegment(context2, arrow, startPoint.x, startPoint.y, endPoint.x, endPoint.y)
+          }
+        } else if (event.type === 'mouseup') {
+          this.clearToolLayer()
+          const elem = document.getElementById('flowchart')
+          const context = elem.getContext('2d')
+          const startPoint = { x: this.getArrowStartPoint.x, y: this.getArrowStartPoint.y }
+          const startBlock = blockAt(context, this.getBlocks, this.getArrowStartPoint.x, this.getArrowStartPoint.y)
+          const endPoint = { x: event.offsetX * XOFFSET, y: event.offsetY }
+          const endBlock = blockAt(context, this.getBlocks, endPoint.x, endPoint.y)
+          const arrow = constructStraightArrow(context, this.getArrowStartPoint, startBlock, endPoint, endBlock)
+          if (arrow.idEnd != null) {
+            this.addArrow(arrow)
+            if (!event.altKey) {
+              const reference = this.getArrows.find(storeArrow => ((arrow.idStart === storeArrow.idStart) && (arrow.idEnd === storeArrow.idEnd) && (arrow.angleStart === storeArrow.angleStart) && (arrow.angleEnd === storeArrow.angleEnd)))
+              const startEdgePoint = getEdgePointCoords(context, startBlock, arrow.angleStart)
+              const endEdgePoint = getEdgePointCoords(context, endBlock, arrow.angleEnd)
+              const startVector = Blocks[startBlock.type].getSectorVector(startBlock, startPoint, endPoint)
+              const endVector = Blocks[endBlock.type].getSectorVector(endBlock, endPoint, startPoint)
+              // console.log(startVector)
+              const points = constructRectangularArrow(reference, startEdgePoint, endEdgePoint, startVector, endVector)
+              points.forEach(point => this.addPoint(point))
+            }
+            // console.log('result:')
+            // console.log(arrow)
+          }
+          this.unselect()
+          this.changeTool(Instruments.UNSELECT_TOOLS)
+        }
+      }
+    },
+    ...mapActions(['addBlock', 'addArrow', 'addPoint', 'changeTool', 'selectBlock', 'selectArrow', 'defineStartPoint', 'countUpGraphicsSemaphore', 'countDownGraphicsSemaphore',
+      'unselect', 'moveBlock', 'changeCurrentStep', 'moveArrowSegment']),
+    drawSchema () {
+      const elem = document.getElementById('flowchart')
+      const context = elem.getContext('2d')
+      // очистка холста
+      context.clearRect(0, 0, elem.width, elem.height)
+      // отрисовка блоков схемы
+      // console.log(this.getBlocks)
+      this.getArrows.forEach(arrow => {
+        const points = this.getArrowPoints(arrow)
+        addEdgePoints(context, points, arrow, this.getBlocks)
+        this.drawArrow(context, arrow, points)
+      })
+      this.getBlocks.forEach(block => {
+        // console.log(block)
+        this.drawBlock(context, block)
+      })
+    },
+    drawBlock (context, block) {
+      // const pic = new Image()
+      // console.log(Blocks[block.type].img)
+      /*
+      const pic = document.getElementById('' + Blocks[block.type].img)
+      const x = block.centerX - block.sizeX / 2
+      const y = block.centerY - block.sizeY / 2
+      context.drawImage(pic, x, y, block.sizeX, block.sizeY)
+      */
+      context.save()
+      context.fillStyle = 'white'
+      context.lineWidth = 3
+      // context.fill(Blocks[block.type].getPath(block))
+      // context.stroke(Blocks[block.type].getPath(block))
+      const blockPath = new Path2D(Blocks[block.type].getPath(block))
+      context.fill(blockPath)
+      context.stroke(blockPath)
+      // const intersections = Intersection.intersect(ShapeInfo.path(Blocks[block.type].getPath(block)), ShapeInfo.line([0, 0], [1000, 1000]))
+      context.restore()
+      // console.log('drawn at:' + x + ' :' + y)
+    },
+    // рисует стрелку
+    drawArrow (context, arrow, points) {
+      for (let i = 0; i < points.length - 1; i++) {
+        this.drawArrowSegment(context, arrow, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y)
+      }
+    },
+    // рисует сегмент указанной стрелки
+    drawArrowSegment (context, arrow, startX, startY, endX, endY) {
+      const linePath = new Path2D()
+      linePath.moveTo(startX, startY)
+      linePath.lineTo(endX, endY)
+      linePath.closePath()
+      context.stroke(linePath)
+    },
+    // добавляет новый блок в схему
+    placeNewBlock (centerX, centerY, blockType) {
+      const width = STANDARD_BLOCK_WIDTH
+      const height = width * STANDARD_BLOCK_HEIGHT_MULTIPLYER
+      const constructionPayload = constructBlock(centerX, centerY, blockType, width, height)
+      this.addBlock(constructionPayload).then(() => {
+        eventBus.$emit('timetoDraw')
+      })
+    }
+  },
+  computed: {
+    ...mapGetters(['getTool', 'getBlocks', 'getArrows', 'getCurrentStep', 'getGraphicsSemaphore', 'getSelectedBlockID', 'getSelectedArrowID', 'getArrowStartPoint', 'getArrowPoints', 'getSelectedSegmentPointIndex'])
+  },
+  mounted () {
+    // слой схемы
+    const elem = document.getElementById('flowchart')
+    elem.style.width = '100%'
+    elem.style.height = '100%'
+    elem.width = elem.offsetWidth
+    elem.height = elem.offsetHeight
+    // слой отрисовки посередине действия
+    const elem2 = document.getElementById('toolLayer')
+    elem2.style.width = '100%'
+    elem2.style.height = '100%'
+    elem2.width = elem2.offsetWidth
+    elem2.height = elem2.offsetHeight
+    const context = elem2.getContext('2d')
+    // на этом слой отображаются полупрозрачные элементы
+    context.globalAlpha = 0.5
+    elem2.addEventListener('click', this.userInputHandler)
+    elem2.addEventListener('mouseenter', this.userInputHandler)
+    elem2.addEventListener('mousemove', this.userInputHandler)
+    elem2.addEventListener('mouseleave', this.userInputHandler)
+    elem2.addEventListener('mousedown', this.userInputHandler)
+    elem2.addEventListener('mouseup', this.userInputHandler)
+  },
+  created () {
+    eventBus.$on('timeToDraw', () => {
+      // if (BlocksCount > BlocksCount + 1) console.log('overflow?')
+      while (this.getGraphicsSemaphore > 0) {
+        ;
+      }
+      this.countUpGraphicsSemaphore()
+      this.drawSchema()
+      this.countDownGraphicsSemaphore()
+    })
+  }
+}
+</script>

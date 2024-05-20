@@ -1,0 +1,323 @@
+<canvas id='flowchart' style='position: absolute; z-index: 0' width=700 height=700>Обновите браузер
+</canvas>
+<script src="https://cdn.jsdelivr.net/gh/Kaiido/path2D-inspection@master/build/path2D-inspection.min.js"></script>
+<script>
+// data block
+function getPathType0 (block) {
+  const angleCoeffic = 0.25
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY + (h / 2))
+  retPath.lineTo(cX - (w / 2) + angleCoeffic * h, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2) + angleCoeffic * h, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// recData block
+function getPathType1 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h
+  const arcAngle = h / radius
+  const xOffset = radius * (1 - Math.cos(arcAngle / 2))
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2) + xOffset, cY + (h / 2))
+  retPath.arc(cX - (w / 2) + radius, cY, radius, Math.PI - (arcAngle / 2), Math.PI + (arcAngle / 2))
+  retPath.lineTo(cX + (w / 2), cY - (h / 2))
+  retPath.arc(cX + (w / 2) + radius - xOffset, cY, radius, Math.PI + (arcAngle / 2), Math.PI - (arcAngle / 2), true)
+  retPath.lineTo(cX - (w / 2) + xOffset, cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// RAM Block
+function getPathType2 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const offset = 0.15 * h
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (h / 2), cY - (h / 2))
+  // outline
+  retPath.lineTo(cX - (h / 2), cY + (h / 2))
+  retPath.lineTo(cX + (h / 2), cY + (h / 2))
+  retPath.lineTo(cX + (h / 2), cY - (h / 2))
+  retPath.lineTo(cX - (h / 2), cY - (h / 2))
+  // offset lines
+  retPath.moveTo(cX - (h / 2) + offset, cY - (h / 2))
+  retPath.lineTo(cX - (h / 2) + offset, cY + (h / 2))
+  retPath.moveTo(cX - (h / 2), cY - (h / 2) + offset)
+  retPath.lineTo(cX + (h / 2), cY - (h / 2) + offset)
+  retPath.closePath()
+  return retPath
+}
+// sequentialMemory Block
+function getPathType3 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h / 2
+  const retPath = new Path2D()
+  retPath.moveTo(cX, cY + radius)
+  retPath.arc(cX, cY, radius, Math.PI / 2, Math.PI * 5 / 2)
+  retPath.lineTo(cX + radius, cY + radius)  
+  retPath.closePath()
+  return retPath
+}
+// directMemory block
+function getPathType4 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h
+  const arcAngle = h / radius
+  const xOffset = radius * (1 - Math.cos(arcAngle / 2))
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2) + xOffset, cY + (h / 2))
+  retPath.arc(cX - (w / 2) + radius, cY, radius, Math.PI - (arcAngle / 2), Math.PI + (arcAngle / 2))
+  retPath.lineTo(cX + (w / 2) - xOffset, cY - (h / 2))
+  // right arcs (have to end at lower point)
+  retPath.arc(cX + (w / 2) + radius - (xOffset * 2), cY, radius, Math.PI + (arcAngle / 2), Math.PI - (arcAngle / 2), true)
+  retPath.moveTo(cX + (w / 2) - xOffset, cY - (h / 2))  
+  retPath.arc(cX + (w / 2) - radius, cY, radius, 0 - (arcAngle / 2), 0 + (arcAngle / 2), false)
+  // ending block
+  retPath.lineTo(cX - (w / 2) + xOffset, cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// document block
+function getPathType5 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h
+  const arcAngle = (w / 2) / radius
+  const yOffset = radius * (1 - Math.cos(arcAngle / 2))
+  const retPath = new Path2D()
+  // uses looks similar to modern standard
+  retPath.moveTo(cX - (w / 2), cY - (h / 2))
+  retPath.lineTo(cX - (w / 2), cY + (h / 2) - yOffset)
+  retPath.arc(cX - (w / 4), cY - (h / 2), radius, Math.PI / 2 + (arcAngle / 2), Math.PI / 2 - (arcAngle / 2), true)
+  retPath.arc(cX + (w / 4), cY + (h / 2) - yOffset * 2 + radius, radius, Math.PI * 3 / 2 - (arcAngle / 2), Math.PI * 3 / 2 + (arcAngle / 2), false)
+  retPath.lineTo(cX + (w / 2), cY - (h / 2))
+  retPath.lineTo(cX - (w / 2), cY - (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// manualInput block
+function getPathType6 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const slopeSideOffest = 0.25 * h
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY + (h / 2))
+  retPath.lineTo(cX - (w / 2), cY - (h / 2) + slopeSideOffest)
+  retPath.lineTo(cX + (w / 2), cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// card block
+function getPathType7 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const slopeSideOffest = 0.25 * h
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY + (h / 2))
+  retPath.lineTo(cX - (w / 2), cY - (h / 2) + slopeSideOffest)
+  retPath.lineTo(cX - (w / 2) + slopeSideOffest, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// paperTape block
+function getPathType8 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h
+  const arcAngle = (w / 2) / radius
+  const yOffset = radius * (1 - Math.cos(arcAngle / 2))
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY - (h / 2) + yOffset)
+  retPath.lineTo(cX - (w / 2), cY + (h / 2) - yOffset)
+  // upper side
+  retPath.arc(cX - (w / 4), cY - (h / 2), radius, Math.PI / 2 + (arcAngle / 2), Math.PI / 2 - (arcAngle / 2), true)
+  retPath.arc(cX + (w / 4), cY + (h / 2) - yOffset * 2 + radius, radius, Math.PI * 3 / 2 - (arcAngle / 2), Math.PI * 3 / 2 + (arcAngle / 2), false)
+  // lower side
+  retPath.arc(cX + (w / 4), cY + (h / 2) - yOffset * 2 + radius - (h - yOffset), radius, Math.PI * 3 / 2 + (arcAngle / 2), Math.PI * 3 / 2 - (arcAngle / 2), true)
+  retPath.arc(cX - (w / 4), cY - (h / 2) - (h - yOffset), radius, Math.PI / 2 - (arcAngle / 2), Math.PI / 2 + (arcAngle / 2), false)
+  // ending block
+  retPath.lineTo(cX - (w / 2), cY - (h / 2) + yOffset)
+  retPath.closePath()
+  return retPath
+}
+// display block
+function getPathType9 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const radius = h
+  // right end of lower arc (also start point)
+  const retPath = new Path2D()
+  retPath.moveTo(cX + (w / 2) - h, cY + (h / 2))
+  // coords of chorde to a center of left side (intersection of arcs)
+  const sideChordeX = h - w
+  const sideChordeY = (-1) * (h / 2)
+  const sideChordeLength = Math.sqrt(sideChordeX * sideChordeX + sideChordeY * sideChordeY)
+  // angle of sideArc
+  const sideArcAngle = sideChordeLength / radius
+  // distance from chorde to center of arc
+  const chordeToCenter = radius * Math.cos(sideArcAngle / 2)
+  // coords to center of chorde
+  const chordeCenterX = sideChordeX / 2
+  const chordeCenterY = sideChordeY / 2
+  // coords from center of chorde to 
+  const toCenterX = sideChordeY * (-1) / sideChordeLength * chordeToCenter
+  const toCenter1Y = sideChordeX * (1) / sideChordeLength * chordeToCenter
+  // coords of centers of 2 side arcs
+  const centerX = cX - (w / 2) - chordeCenterX + toCenterX
+  const center1Y = cY + (h / 2) + chordeCenterY + toCenter1Y
+  const center2Y = 2 * cY - center1Y
+  // determining an angle to draw arcs
+  const angleToCenterOfArc = Math.atan(sideChordeY / sideChordeX)
+  // for lower arc(arc1): go clockwise from PI / 2
+  // for arc2: go counter-clockwise from PI * 3 / 2
+  // drawing left side arcs
+  retPath.arc(centerX, center1Y, radius, Math.PI * 1 / 2 + angleToCenterOfArc - (sideArcAngle / 2), Math.PI * 1 / 2 + angleToCenterOfArc + (sideArcAngle / 2))
+  retPath.arc(centerX, center2Y, radius, Math.PI * 3 / 2 - angleToCenterOfArc - (sideArcAngle / 2), Math.PI * 3 / 2 - angleToCenterOfArc + (sideArcAngle / 2))
+  // rightside arc and the rest of the block
+  const arcAngle = h / radius
+  const xOffset = radius * (1 - Math.cos(arcAngle / 2))  
+  retPath.lineTo(cX + (w / 2) - xOffset, cY - (h / 2))   
+  retPath.arc(cX + (w / 2) - radius, cY, radius, 0 - (arcAngle / 2), 0 + (arcAngle / 2))
+  retPath.moveTo(cX + (w / 2) - xOffset, cY + (h / 2))  
+  retPath.lineTo(cX + (w / 2) - h, cY + (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// process block
+function getPathType10 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const retPath = new Path2D()
+  retPath.moveTo(cX - w / 2, cY - h / 2)
+  retPath.lineTo(cX - w / 2, cY + h / 2)
+  retPath.lineTo(cX + w / 2, cY + h / 2)
+  retPath.lineTo(cX + w / 2, cY - h / 2)
+  retPath.lineTo(cX - w / 2, cY - h / 2)
+  retPath.closePath()
+  return retPath
+}
+// definedProcess block
+function getPathType11 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const offset = 0.15 * w
+  const retPath = new Path2D()
+  retPath.moveTo(cX - w / 2, cY - h / 2)
+  retPath.lineTo(cX - w / 2, cY + h / 2)
+  retPath.lineTo(cX + w / 2, cY + h / 2)
+  retPath.lineTo(cX + w / 2, cY - h / 2)
+  retPath.lineTo(cX - w / 2, cY - h / 2)
+  
+  retPath.moveTo(cX - w / 2 + offset, cY - h / 2)
+  retPath.lineTo(cX - w / 2 + offset, cY + h / 2)
+  retPath.moveTo(cX + w / 2 - offset, cY - h / 2)
+  retPath.lineTo(cX + w / 2 - offset, cY + h / 2)
+  retPath.closePath()
+  return retPath
+}
+// manualOperation block
+function getPathType12 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const slopeSideOffest = (w - h) / 2
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY - (h / 2))
+  retPath.lineTo(cX + (w / 2) - slopeSideOffest, cY + (h / 2))
+  retPath.lineTo(cX - (w / 2) + slopeSideOffest, cY + (h / 2))
+  retPath.lineTo(cX - (w / 2), cY - (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// preparation block
+function getPathType13 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const slopeSideOffest = (w - h) / 2
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2) + slopeSideOffest, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2) - slopeSideOffest, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY)
+  retPath.lineTo(cX + (w / 2) - slopeSideOffest, cY + (h / 2))
+  retPath.lineTo(cX - (w / 2) + slopeSideOffest, cY + (h / 2))
+  retPath.lineTo(cX - (w / 2), cY)
+  retPath.lineTo(cX - (w / 2) + slopeSideOffest, cY - (h / 2))
+  retPath.closePath()
+  return retPath
+}
+// decision block
+function getPathType14 (block) {
+  const w = block.sizeX
+  const h = block.sizeY
+  const cX = block.centerX
+  const cY = block.centerY
+  const retPath = new Path2D()
+  retPath.moveTo(cX - (w / 2), cY)
+  retPath.lineTo(cX, cY - (h / 2))
+  retPath.lineTo(cX + (w / 2), cY)
+  retPath.lineTo(cX, cY + (h / 2))
+  retPath.lineTo(cX - (w / 2), cY)
+  retPath.closePath()
+  return retPath
+}
+// test environment
+const elem = document.getElementById('flowchart')
+const context = elem.getContext('2d')
+const testBlock = {
+  // id - пока что только так, временный
+  id: null,
+  // координаты центра
+  centerX: 300,
+  centerY: 300,
+  // размеры
+  sizeX: 150,
+  sizeY: 100,
+  // тип в виде номера
+  type: 1
+}
+
+context.fillStyle = 'blue'
+context.lineWidth = 5
+context.fill(getPathType0(testBlock))
+context.stroke(getPathType0(testBlock))
+// console.log(getPathType9(testBlock).toSVGString())
+// context.stroke(new Path2D(getPathType9(testBlock).toSVGString()))
+// дальнейшие манипуляции только с добавлением в проект, могу только заливку чекнуть
+</script>

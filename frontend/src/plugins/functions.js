@@ -1,0 +1,469 @@
+import { Blocks, Instruments, STANDARD_BLOCK_WIDTH, STANDARD_BLOCK_HEIGHT_MULTIPLYER, EPS, isValidBlock } from '../plugins/constants'
+import { ShapeInfo, Intersection } from 'kld-intersections'
+
+// для тех случаев, когда из-за точности хранения слегка неровный сегмент выходит
+// возвращает единичный вектор в направлении от p1 к p2 но только по одной оси
+function getDirectionVectorForSegment (p1, p2) {
+  const retVal = { x: p2.x - p1.x, y: p2.y - p1.y }
+  if (Math.abs(retVal.x) > Math.abs(retVal.y)) {
+    retVal.x = Math.sign(retVal.x)
+    retVal.y = 0
+  } else {
+    retVal.x = 0
+    retVal.y = Math.sign(retVal.y)
+  }
+  return retVal
+}
+
+// добавляет к массиву arrowPoints в еачало и конец начальную и конечную краевые точки
+function addEdgePoints (context, arrowPoints, arrow, Blocks) {
+  const startBlock = Blocks.find(block => block.id === arrow.idStart)
+  const endBlock = Blocks.find(block => block.id === arrow.idEnd)
+  const startPoint = getEdgePointCoords(context, startBlock, arrow.angleStart)
+  const endPoint = getEdgePointCoords(context, endBlock, arrow.angleEnd)
+  arrowPoints.unshift(constructPoint(startPoint.x, startPoint.y, arrow.id, -1))
+  arrowPoints.push(constructPoint(endPoint.x, endPoint.y, arrow.id, arrowPoints.length - 1))
+}
+
+function getNormalised (vector) {
+  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y)
+  return {
+    x: vector.x / length,
+    y: vector.y / length
+  }
+}
+
+function getPerpendicular (vector) {
+  return {
+    x: (-1) * vector.y,
+    y: vector.x
+  }
+}
+
+function getReverse (vector) {
+  return {
+    x: (-1) * vector.x,
+    y: (-1) * vector.y
+  }
+}
+
+function getQuadranglePath (p1, p2, p3, p4) {
+  let retPath = ''
+  retPath += 'M ' + (p1.x) + ', ' + (p1.y) + '\n'
+  retPath += 'L ' + (p2.x) + ', ' + (p2.y) + '\n'
+  retPath += 'L ' + (p3.x) + ', ' + (p3.y) + '\n'
+  retPath += 'L ' + (p4.x) + ', ' + (p4.y) + '\n'
+  retPath += 'L ' + (p1.x) + ', ' + (p1.y) + '\n'
+  retPath += 'Z'
+  return retPath
+}
+
+// конструирует четырехугольник для выбора сегемнта стрелки
+function getSegmemtSelectPath (segmentStart, segmentEnd) {
+  const arrowSelectionWidth = 8
+  const segmentVector = { x: segmentEnd.x - segmentStart.x, y: segmentEnd.y - segmentStart.y }
+  // console.log('segmentVector - x: ' + segmentVector.x + ', y: ' + segmentVector.y)
+  const normalisedSegmentVector = getNormalised(segmentVector)
+  // console.log('normalisedSegmentVector - x: ' + normalisedSegmentVector.x + ', y: ' + normalisedSegmentVector.y)
+  const direction1 = getPerpendicular(normalisedSegmentVector)
+  direction1.x = direction1.x * (arrowSelectionWidth / 2)
+  direction1.y = direction1.y * (arrowSelectionWidth / 2)
+  // console.log('direction1 - x: ' + direction1.x + ', y: ' + direction1.y)
+  const direction2 = getReverse(direction1)
+  // console.log('direction2 - x: ' + direction2.x + ', y: ' + direction2.y)
+  const p1 = { x: segmentStart.x + direction1.x, y: segmentStart.y + direction1.y }
+  const p2 = { x: segmentStart.x + direction2.x, y: segmentStart.y + direction2.y }
+  const p3 = { x: segmentEnd.x + direction2.x, y: segmentEnd.y + direction2.y }
+  const p4 = { x: segmentEnd.x + direction1.x, y: segmentEnd.y + direction1.y }
+  return getQuadranglePath(p1, p2, p3, p4)
+}
+function getLineXFromY (y, p1, p2) {
+  return (y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x
+}
+function getLineYFromX (x, p1, p2) {
+  return (x - p1.x) * (p2.y - p1.y) / (p2.x - p1.x) + p1.y
+}
+
+function getVectorByBoundingBox (block, closePoint, farPoint) {
+  const leftSide = block.centerX - block.sizeX / 2
+  const rightSide = leftSide + block.sizeX
+  const topSide = block.centerY - block.sizeY / 2
+  const bottomSide = topSide + block.sizeY
+  // console.log('Left: x=' + leftSide + ', Right: x=' + rightSide + ', Top: y=' + topSide + ', Bottom: y=' + bottomSide)
+  // пересекаем прямую, образуемую 2 точками с прямыми, на которых расположены стороны ограничивающего прямоугольника
+  const intersections = [constructPoint(leftSide, getLineYFromX(leftSide, closePoint, farPoint), 0),
+    constructPoint(rightSide, getLineYFromX(rightSide, closePoint, farPoint), 1),
+    constructPoint(getLineXFromY(topSide, closePoint, farPoint), topSide, 2),
+    constructPoint(getLineXFromY(bottomSide, closePoint, farPoint), bottomSide, 3)]
+  // console.log(intersections)
+  // отсекаем те точки, которые не лежат на сторонах ограничивающегопрямоугольника
+  let pointsToConsider = intersections.filter(point => (point.x >= leftSide) && (point.x <= rightSide) && (point.y >= topSide) && (point.y <= bottomSide))
+  // console.log(pointsToConsider)
+  // если обе передаваемые в функции точки находятся ВНЕ блока, то возможен сценарий, при котором будут отсечены все точки, в таком случае просто добавляем их все обратно
+  if (pointsToConsider.length < 1) pointsToConsider = intersections
+  // для нахождения вектора надо определить дальнюю по вектору, задаваемому входными точками
+  let pointVector = null
+  let minDist = 100000000
+  pointsToConsider.forEach(point => {
+    const dist = (point.x - farPoint.x) * (point.x - farPoint.x) + (point.y - farPoint.y) * (point.y - farPoint.y)
+    if (minDist > dist) {
+      minDist = dist
+      pointVector = point
+    }
+  })
+  // console.log(pointVector)
+  // найденной точке будет соответствовать какая-либо сторона, а ей - свой вектор направления
+  const retVal = { x: -1, y: 0 }
+  switch (pointVector.arrowId) {
+    case 1: {
+      retVal.x = 1
+      break
+    }
+    case 2: {
+      retVal.x = 0
+      retVal.y = -1
+      break
+    }
+    case 3: {
+      retVal.x = 0
+      retVal.y = 1
+      break
+    }
+  }
+  return retVal
+}
+function blockAt (context, blocks, x, y) {
+  // console.log(blocks)
+  let resultingBlock = {
+    id: -1
+  }
+  const blocksLocal = [...blocks]
+  // console.log(blocksLocal)
+  blocksLocal.forEach((block) => {
+    if (resultingBlock.id === -1) {
+      // if ((Math.abs(X - block.centerX) < (block.sizeX / 2)) && (Math.abs(Y - block.centerY) < (block.sizeY / 2))) {
+      const path = Blocks[block.type].getPath(block)
+      if (context.isPointInPath(new Path2D(path), x, y)) {
+        // resultingBlock = block
+        resultingBlock = constructBlock(block.centerX, block.centerY, block.type, block.sizeX, block.sizeY, block.id)
+        // console.log(resultingBlock)
+      }
+    }
+  })
+  if (resultingBlock.id === -1) resultingBlock = null
+  return resultingBlock
+}
+function getIntersections (block, x1, y1, x2, y2) {
+  return Intersection.intersect(ShapeInfo.path(Blocks[block.type].getPath(block)), ShapeInfo.line([x1, y1], [x2, y2]))
+}
+function actualIntersection (context, block, intersections) {
+  let retVal = null
+  const cX = block.centerX
+  const cY = block.centerY
+  let maxdist = 0
+  // console.log(intersections)
+  intersections.points.forEach(point => {
+    if ((point.x - cX) * (point.x - cX) + (point.y - cY) * (point.y - cY) > maxdist) {
+      const blockPath = new Path2D(Blocks[block.type].getPath(block))
+      if ((context.isPointInPath(blockPath, point.x, point.y)) || (context.isPointInStroke(blockPath, point.x, point.y))) {
+        maxdist = (point.x - cX) * (point.x - cX) + (point.y - cY) * (point.y - cY)
+        retVal = point
+      }
+    }
+  })
+  return retVal
+}
+function getEdgePointCoords (context, block, angle) {
+  const vector = vectorFromAngle(angle)
+  const blockSize = Math.max(block.sizeX, block.sizeY)
+  const intersections = getIntersections(block, block.centerX, block.centerY, block.centerX + vector.x * blockSize, block.centerY + vector.y * blockSize)
+  // console.log('edgecase')
+  // console.log(vector)
+  return actualIntersection(context, block, intersections)
+}
+function constructBlock (XCentral, YCentral, type, width = STANDARD_BLOCK_WIDTH, height = STANDARD_BLOCK_WIDTH * STANDARD_BLOCK_HEIGHT_MULTIPLYER, id = null, mainText = null) {
+  let finaltype = Instruments.BLOCK_DEFALULT
+  // console.log(type + ' ' + isValidBlock(type))
+  if (isValidBlock(type) === true) {
+    finaltype = type
+  }
+  return {
+    // id - пока что только так, временный
+    id: id,
+    // координаты центра
+    centerX: XCentral,
+    centerY: YCentral,
+    // размеры
+    sizeX: width,
+    sizeY: height,
+    // тип в виде номера
+    type: finaltype,
+    // текст внутри блока
+    text: mainText
+  }
+}
+function copyBlock (block) {
+  return constructBlock(block.centerX, block.centerY, block.type, block.sizeX, block.sizeY, block.id, block.text)
+}
+function constructArrow (idStart, idEnd = null, angleStart = 90, angleEnd = 270, id = null, mainText = null) {
+  return {
+    id: id,
+    idStart: idStart,
+    idEnd: idEnd,
+    // в градусах угол от строго восточного направления
+    angleStart: angleStart,
+    angleEnd: angleEnd
+    // подпись связи
+    // text: mainText
+  }
+}
+function copyArrow (arrow) {
+  return constructArrow(arrow.idStart, arrow.idEnd, arrow.angleStart, arrow.angleEnd, arrow.id, arrow.text)
+}
+function constructPoint (x, y, arrowId = null, order = null, id = null) {
+  return {
+    id: id,
+    x: x,
+    y: y,
+    arrowId: arrowId,
+    order: order
+  }
+}
+
+function copyPoint (point) {
+  return constructPoint(point.x, point.y, point.arrowId, point.order, point.id)
+}
+function arrowAngle (edgePoint, block) {
+  const cX = block.centerX
+  const cY = block.centerY
+  const pX = edgePoint.x
+  const pY = edgePoint.y
+  let retAngle = Math.atan2(pY - cY, pX - cX)
+  // retAngle = Math.round(retAngle * 180 / Math.PI)
+  retAngle = retAngle * 180 / Math.PI
+  if (retAngle === -180) retAngle = 180
+  return retAngle
+}
+
+function vectorFromAngle (angle) {
+  const vector = { x: 2, y: 2 }
+  const radAngle = angle * Math.PI / 180
+  const retVector = { x: 0, y: 0 }
+  retVector.y = (Math.sin(radAngle) * 1000) * vector.y
+  retVector.x = (Math.cos(radAngle) * 1000) * vector.x
+  return retVector
+}
+
+function constructStraightArrow (context, startPoint, startBlock, endPoint, endBlock = null) {
+  if (getIntersections(startBlock, startPoint.x, startPoint.y, endPoint.x, endPoint.y).points.length > 0) {
+    const startEdgePoint = actualIntersection(context, startBlock, getIntersections(startBlock, startPoint.x, startPoint.y, endPoint.x, endPoint.y))
+    const startEdgeAngle = arrowAngle(startEdgePoint, startBlock)
+    let endEdgePoint = endPoint
+    let endEdgeAngle = null
+    let endId = null
+    if (endBlock != null) {
+      endEdgePoint = actualIntersection(context, endBlock, getIntersections(endBlock, startPoint.x, startPoint.y, endPoint.x, endPoint.y))
+      endEdgeAngle = arrowAngle(endEdgePoint, endBlock)
+      endId = endBlock.id
+    }
+    const retVal = constructArrow(startBlock.id, endId, startEdgeAngle, endEdgeAngle)
+    return retVal
+  } else return null
+}
+// конструирование прямоугольных стрелок должно возвращать и массив точек, который только не имеет айдишников, так что тут да, возвращаемый объект состоит из 2 частей
+function constructRectangularArrow (arrow, startPoint, endPoint, startVector, endVector) {
+  const retVal = []
+  const startPointVector = { x: Math.abs(endPoint.x - startPoint.x) * 2 * startVector.x, y: Math.abs(endPoint.y - startPoint.y) * 2 * startVector.y }
+  const endPointVector = { x: Math.abs(endPoint.x - startPoint.x) * 2 * endVector.x, y: Math.abs(endPoint.y - startPoint.y) * 2 * endVector.y }
+  const intersections = Intersection.intersect(ShapeInfo.line([startPoint.x, startPoint.y], [startPoint.x + startPointVector.x, startPoint.y + startPointVector.y]),
+    ShapeInfo.line([endPoint.x, endPoint.y], [endPoint.x + endPointVector.x, endPoint.y + endPointVector.y]))
+  if (intersections.points.length === 1) {
+    // случай с перпендикулярными и пересекающимися векторами (1 точка)
+    // console.log('arrow with 1 point')
+    retVal.push(constructPoint(intersections.points[0].x, intersections.points[0].y, arrow.id, 0))
+  } else if ((startVector.x === endVector.x) && (startVector.y === endVector.y)) {
+    // случай с параллельными векторами, совпадающими по направлению (2 точки) (случай должен возникать обычно только при реконструкции стрелки при перемещении блока)
+    // console.log('arrow with 2 points, made by connecting 2 sides looking in the same direction')
+    const candidate1 = { x: startPoint.x + startPointVector.x / 4, y: startPoint.y + startPointVector.y / 4 }
+    const candidate2 = { x: endPoint.x + endPointVector.x / 4, y: endPoint.y + endPointVector.y / 4 }
+    let p1, p2
+    if (startVector.x === 0) {
+      // вычисли координаты
+      p1 = { x: startPoint.x, y: Math.max(candidate1.y * startVector.y, candidate2.y * startVector.y) * startVector.y }
+      p2 = { x: endPoint.x, y: Math.max(candidate1.y * startVector.y, candidate2.y * startVector.y) * startVector.y }
+    } else {
+      p1 = { x: Math.max(candidate1.x * startVector.x, candidate2.x * startVector.x) * startVector.x, y: startPoint.y }
+      p2 = { x: Math.max(candidate1.x * startVector.x, candidate2.x * startVector.x) * startVector.x, y: endPoint.y }
+    }
+    retVal.push(constructPoint(p1.x, p1.y, arrow.id, 0))
+    retVal.push(constructPoint(p2.x, p2.y, arrow.id, 1))
+  } else if (((startVector.x === (-1) * endVector.x) && (startVector.x !== 0)) || ((startVector.y === (-1) * endVector.y) && (startVector.y !== 0))) {
+    // случай с параллельными векторами, различающимися по направлению
+    if (intersections.points.length > 1) {
+      // точки друг напротив друга, промежуточных точек нет
+      // console.log('arrow with 2 points, made by connecting 2 sides looking at the same direction, connection is parallel to one of coordinate lines')
+    } else if (((Math.sign(endPoint.x - startPoint.x) === Math.sign(endVector.x)) && (startVector.x !== 0)) || ((Math.sign(endPoint.y - startPoint.y) === Math.sign(endVector.y)) && (startVector.y !== 0))) {
+      // в данном случае первые 2 точки ставятся по вектору на неоторый отступ, затем идет ортогональный векторам отступ до одного значения и происходит соединение
+      const dist = Math.min(Math.max(Math.abs(startPoint.x - endPoint.x), Math.abs(startPoint.y - endPoint.y)), STANDARD_BLOCK_WIDTH)
+      const p1 = { x: startPoint.x + startVector.x * dist, y: startPoint.y + startVector.y * dist }
+      const p4 = { x: endPoint.x + endVector.x * dist, y: startPoint.y + startVector.y * dist }
+      let p2, p3
+      if (startVector.x === 0) {
+        p2 = { x: p1.x + dist, y: p1.y }
+        p3 = { x: p2.x + dist, y: p4.y }
+      } else {
+        p2 = { x: p1.x, y: p1.y + dist }
+        p3 = { x: p4.x, y: p2.y + dist }
+      }
+      retVal.push(constructPoint(p1.x, p1.y, arrow.id, 0))
+      retVal.push(constructPoint(p2.x, p2.y, arrow.id, 1))
+      retVal.push(constructPoint(p3.x, p3.y, arrow.id, 2))
+      retVal.push(constructPoint(p4.x, p4.y, arrow.id, 3))
+    } else {
+      // случай разнонаправленных векторов, смотрящих по направлению к противоположной точке (2 точки)
+      // console.log('arrow with 2 points, made by connecting 2 sides looking at the same direction, but not connected by straight line allighning with coordinates line')
+      const p1 = { x: startPoint.x + startPointVector.x / 4, y: startPoint.y + startPointVector.y / 4 }
+      const p2 = { x: p1.x + (endPoint.x - startPoint.x) * Math.abs(startVector.y), y: p1.y + (endPoint.y - startPoint.y) * Math.abs(startVector.x) }
+      retVal.push(constructPoint(p1.x, p1.y, arrow.id, 0))
+      retVal.push(constructPoint(p2.x, p2.y, arrow.id, 1))
+    }
+  } else {
+    // здесь нужно просто сделать отступы по векторам и проделать пересечение в обратном и прямом направлениях из обратных точек
+    const dist = Math.min(Math.max(Math.abs(startPoint.x - endPoint.x), Math.abs(startPoint.y - endPoint.y)), STANDARD_BLOCK_WIDTH)
+    const p1 = { x: startPoint.x + startVector.x * dist, y: startPoint.y + startVector.y * dist }
+    const p3 = { x: endPoint.x + endVector.x * dist, y: startPoint.y + startVector.y * dist }
+    const p2 = Intersection.intersect(ShapeInfo.line([p1.x, p1.y], [p1.x + endPointVector.x, p1.y + endPointVector.y]),
+      ShapeInfo.line([p3.x, p3.y], [p3.x - startPointVector.x, p3.y - startPointVector.y])).points[0]
+    retVal.push(constructPoint(p1.x, p1.y, arrow.id, 0))
+    retVal.push(constructPoint(p2.x, p2.y, arrow.id, 1))
+    retVal.push(constructPoint(p3.x, p3.y, arrow.id, 2))
+  }
+  return retVal
+}
+
+// возвращает изменные стрелку и массивы перемещенных, удаленных и добавленных точек с учетом перемещения выбранного сегмента соответственно указанным координатам
+function adjustArrowSegmentForNewCoords (context, arrow, pointIndex, startBlock, endBlock, arrowPoints, newX, newY) {
+  // определяем начальные координаты целевого сегмента
+  const segmentPoints = [arrowPoints[pointIndex], arrowPoints[pointIndex + 1]]
+  const arrowAngles = [arrow.angleStart, arrow.angleEnd]
+  const segmentCenter = constructPoint((segmentPoints[0].x + segmentPoints[1].x) / 2, (segmentPoints[0].y + segmentPoints[1].y) / 2)
+  // получаем вектор направления сегмента - так как двигаются только прямоугольные сегменты, а в некоторых случаях координаты могут не идеально совпадать, то требуется такая коррекция
+  const segmentDirection = getDirectionVectorForSegment(segmentPoints[0], segmentPoints[1])
+  // получаем координаты смещенного на новое место центра(при этом он не обязательно будет центром)
+  const segmentNewCenter = copyPoint(segmentCenter)
+  if (segmentDirection.x === 0) segmentNewCenter.x = newX; else segmentNewCenter.y = newY
+  // информация о точках будет сгруппирована в 3 массива с исчерпывающими наименованиями
+  const retMoved = [null, null]
+  const retAdded = [null, null]
+  const retDeleted = [null, null]
+  // большинство действий для обоих краев сегмента будет повторяться, потому их обработка организована в виде цикла с 2 итерациями
+  for (let i = 0; i < 2; i++) {
+    const currentPoint = segmentPoints[i]
+    // если точка не краевая, то она переезжает в новый массив с изменением координат по тому же приципу, что и центр сегмента
+    const retPointIndex = arrowPoints.findIndex(point => point.id === currentPoint.id)
+    if (retPointIndex > 0 && (retPointIndex < arrowPoints.length - 1)) {
+      let moveCurrent = copyPoint(currentPoint)
+      // console.log(segmentDirection)
+      if (segmentDirection.x === 0) moveCurrent.x = newX; else moveCurrent.y = newY
+      retMoved[i] = moveCurrent
+      // удаление предыдущей/последующей точки при попадании на одну линию после перемещения
+      const whereToLook = i * 2 - 1
+      const indexOfPointInQuestion = retPointIndex + whereToLook
+      // проверяем что эта точка лежит на одной прямой с новым положением отрезка
+      // console.log(Math.abs((arrowPoints[indexOfPointInQuestion].x - currentPoint.x) * segmentDirection.y + (arrowPoints[indexOfPointInQuestion].y - currentPoint.y) * segmentDirection.x))
+      if (Math.abs((arrowPoints[indexOfPointInQuestion].x - currentPoint.x) * segmentDirection.y + (arrowPoints[indexOfPointInQuestion].y - currentPoint.y) * segmentDirection.x) < EPS) {
+        // если при перемещении сегмента один из его краев лежит на одной прямой этого и следующего сегмента, то его надо убрать
+        moveCurrent = copyPoint(arrowPoints[indexOfPointInQuestion])
+        // при проверке маленькая разница считается погрешностью, в новом сегменте она поправляется сдвигом для соблюдения прямоугольности результирующего сегмента
+        if (segmentDirection.x === 0) moveCurrent.x = newX; else moveCurrent.y = newY
+        retMoved[i] = moveCurrent
+        retDeleted[i] = copyPoint(currentPoint)
+      }
+    } else {
+      // мы на одной из краевых точек, определим какого блока краевая точка
+      let currentBlock = null
+      if (i === 0) currentBlock = startBlock; else currentBlock = endBlock
+      // проведем из нового центра длинный отрезок в обе стороны для пересечения с нашим блоком
+      const bigLength = Math.max(currentBlock.sizeX, currentBlock.sizeY) + Math.max(Math.abs(segmentPoints[1].x - segmentPoints[0].x), Math.abs(segmentPoints[1].y - segmentPoints[0].y))
+      const bigP1 = constructPoint(segmentNewCenter.x + bigLength * segmentDirection.x, segmentNewCenter.y + bigLength * segmentDirection.y)
+      const bigP2 = constructPoint(segmentNewCenter.x + bigLength * segmentDirection.x * (-1), segmentNewCenter.y + bigLength * segmentDirection.y * (-1))
+      // получаем пересечения
+      const intersections = getIntersections(currentBlock, bigP1.x, bigP1.y, bigP2.x, bigP2.y)
+      // console.log(intersections)
+      let intersection = null
+      let maxdist = -1000000000000
+      let directionForBlockCollision = segmentDirection
+      if (i === 1) directionForBlockCollision = getReverse(segmentDirection)
+      intersections.points.forEach(point => {
+        if ((point.x * directionForBlockCollision.x) + (point.y * directionForBlockCollision.y) > maxdist) {
+          const blockPath = new Path2D(Blocks[currentBlock.type].getPath(currentBlock))
+          if ((context.isPointInPath(blockPath, point.x, point.y)) || (context.isPointInStroke(blockPath, point.x, point.y))) {
+            intersection = constructPoint(point.x, point.y, currentPoint.arrowId)
+            maxdist = (point.x * directionForBlockCollision.x) + (point.y * directionForBlockCollision.y)
+          }
+        }
+      })
+      // если пересечение есть, оно будет найдено к этому моменту
+      if (intersection != null) {
+        // необходимо пересчитать угол у стрелки
+        // console.log('old angle:' + arrowAngles[i])
+        arrowAngles[i] = arrowAngle(intersection, currentBlock)
+        // console.log('new angle:' + arrowAngles[i])
+      } else {
+        // пересечения с блоком нет, это значит что потребуется добавить новую точку
+        const intermX = currentBlock.centerX * Math.abs(segmentDirection.x) + segmentNewCenter.x * Math.abs(segmentDirection.y)
+        const intermY = currentBlock.centerY * Math.abs(segmentDirection.y) + segmentNewCenter.y * Math.abs(segmentDirection.x)
+        const newIntermidiate = copyPoint(currentPoint)
+        newIntermidiate.x = intermX
+        newIntermidiate.y = intermY
+        retAdded[i] = newIntermidiate
+        // надо подправить саму стрелку, для этого посмотрим пересечение блока с отрезком, соединяющим новую промежуточную точку
+        // (воспользуемся ограниченностью вариантов изза способа построения промежуточной точки)
+        const angleVector = getDirectionVectorForSegment(constructPoint(currentBlock.centerX, currentBlock.centerY), newIntermidiate)
+        if (angleVector.x === 1) arrowAngles[i] = 0; else
+        if (angleVector.x === -1) arrowAngles[i] = 180; else
+        if (angleVector.y === -1) arrowAngles[i] = -90; else arrowAngles[i] = 90
+      }
+    }
+  }
+  // теперь надо вернуть измененный массив и стрелку
+  const retArrow = copyArrow(arrow)
+  retArrow.angleStart = arrowAngles[0]
+  retArrow.angleEnd = arrowAngles[1]
+  // console.log(arrow)
+  // console.log(retArrow)
+  return { arrow: retArrow, moved: retMoved, deleted: retDeleted, added: retAdded }
+}
+// собирает последовательный массив точек из информации о последствиях перемещения сегмента(используется для отображения промежуточного результата)
+function assembleArrowPointsForMovingSegment (moveRes, arrowPoints, blocks, context) {
+  arrowPoints.forEach(point => {
+    if (moveRes.moved[0] != null && moveRes.moved[0].id === point.id) {
+      point.x = moveRes.moved[0].x
+      point.y = moveRes.moved[0].y
+    }
+    if (moveRes.moved[1] != null && moveRes.moved[1].id === point.id) {
+      point.x = moveRes.moved[1].x
+      point.y = moveRes.moved[1].y
+    }
+    if (moveRes.deleted[0] != null) {
+      point.order--
+    }
+    if (moveRes.added[0] != null) {
+      point.order++
+    }
+  })
+  if (moveRes.deleted[1] != null) arrowPoints.pop()
+  if (moveRes.deleted[0] != null) arrowPoints.shift()
+  if (moveRes.added[0] != null) {
+    arrowPoints.unshift(moveRes.added[0])
+    arrowPoints[0].order = 0
+  }
+  if (moveRes.added[1] != null) {
+    arrowPoints.push(moveRes.added[1])
+    arrowPoints[arrowPoints.length - 1].order = arrowPoints.length - 1
+  }
+  addEdgePoints(context, arrowPoints, moveRes.arrow, blocks)
+  return arrowPoints
+}
+
+export { constructBlock, copyBlock, constructArrow, copyArrow, constructPoint, copyPoint, blockAt, actualIntersection, constructStraightArrow, constructRectangularArrow, getIntersections, getEdgePointCoords, getVectorByBoundingBox, getNormalised, getPerpendicular, getReverse, getQuadranglePath, getSegmemtSelectPath, addEdgePoints, adjustArrowSegmentForNewCoords, assembleArrowPointsForMovingSegment }
