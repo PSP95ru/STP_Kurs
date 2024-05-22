@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="120"
+   height="80"
+   viewBox="0 0 31.75 21.166667"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.2 (dc2aedaf03, 2022-05-15)"
+   sodipodi:docname="imgDirectMemSmall.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="4"
+     inkscape:cx="23.375"
+     inkscape:cy="84.875"
+     inkscape:window-width="1920"
+     inkscape:window-height="1001"
+     inkscape:window-x="-9"
+     inkscape:window-y="-9"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2">
+    <inkscape:path-effect
+       effect="spiro"
+       id="path-effect5548"
+       is_visible="true"
+       lpeversion="1" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect4078"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="bspline"
+       id="path-effect1138"
+       is_visible="true"
+       lpeversion="1"
+       weight="33.333333"
+       steps="2"
+       helper_size="0"
+       apply_no_weight="true"
+       apply_with_weight="true"
+       only_selected="false" />
+    <inkscape:path-effect
+       effect="spiro"
+       id="path-effect5548-0"
+       is_visible="true"
+       lpeversion="1" />
+    <inkscape:path-effect
+       effect="spiro"
+       id="path-effect5548-0-7"
+       is_visible="true"
+       lpeversion="1" />
+  </defs>
+  <g
+     inkscape:label="Слой 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.529167;stroke-dasharray:none"
+       d="M 5.6885417,0.52916667 H 26.061458 m 0,20.10833333 H 5.6885417"
+       id="rect2395"
+       sodipodi:nodetypes="cccc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.529167;stroke-dasharray:none"
+       d="M 5.8208333,0.52916667 C 2.5734854,2.7595819 0.52916667,6.6437876 0.52916667,10.583333 c 0,3.939546 2.04431873,7.823752 5.29166663,10.054167"
+       id="path5546"
+       inkscape:path-effect="#path-effect5548"
+       inkscape:original-d="M 5.8208333,0.52916667 C -4.9827204,14.155472 11.421444,-2.9542467 0.52916667,10.583333 -10.363112,24.120913 -5.0268184,8.24645 5.8208333,20.6375"
+       sodipodi:nodetypes="csc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.529167;stroke-dasharray:none"
+       d="m 25.929167,0.52916667 c 3.247348,2.23041523 5.291666,6.11462093 5.291666,10.05416633 0,3.939546 -2.044318,7.823752 -5.291666,10.054167"
+       id="path5546-4"
+       inkscape:path-effect="#path-effect5548-0"
+       inkscape:original-d="M 25.929167,0.52916667 C 15.125617,14.155472 42.113113,-2.9542467 31.220833,10.583333 20.328553,24.120913 15.081517,8.24645 25.929167,20.6375"
+       sodipodi:nodetypes="csc" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.529167;stroke-dasharray:none"
+       d="M 25.929167,0.52916667 C 22.681819,2.7595819 20.6375,6.6437876 20.6375,10.583333 c 0,3.939546 2.044319,7.823752 5.291667,10.054167"
+       id="path5546-4-2"
+       inkscape:path-effect="#path-effect5548-0-7"
+       inkscape:original-d="M 25.929167,0.52916667 C 36.732717,14.155472 9.74522,-2.9542467 20.6375,10.583333 31.529783,24.120913 36.776817,8.24645 25.929167,20.6375"
+       sodipodi:nodetypes="csc" />
+  </g>
+</svg>
